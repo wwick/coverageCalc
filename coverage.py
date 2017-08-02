@@ -1,5 +1,7 @@
 import os
 from subprocess import call
+import numpy as np
+import matplotlib.pyplot as plt
 
 filePath = "/users/wwick/adrianBAM"
 ref = "AE004437.1"
@@ -30,14 +32,18 @@ genes["VNG_2446H"] = ["1835869", "1836027"]
 genes["VNG_0287H"] = ["230608", "230883"]
 
 for gene in genes:
-    for tp in range(1,5):
+    for tp in range(1, 5):
         BAMfiles = []
-        for rep in range(1,4):
+        for rep in range(1, 4):
             BAMfiles.append(BAMfile(rep, tp))
-        stdout = open(outFile(gene, tp), "w")
+        output = outFile(gene, tp)
+        stdout = open(output, "w")
         stderr = open(errFile(gene, tp), "w")
         command = ["samtools", "mpileup", "-d 8000", "-r", genePos(gene),
             BAMfiles[0], BAMfiles[1], BAMfiles[2]]
         call(command, stdout = stdout, stderr = stderr)
         stdout.close()
         stderr.close()
+        pileup = np.loadtxt(output, skiprows = 0, usecols = [1,3])
+        x = pileup[:,0]
+        y = pileup[:,1]
