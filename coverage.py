@@ -3,6 +3,7 @@ from subprocess import call
 import numpy as np
 import pandas as pd
 import time
+from multiprocessing import Pool
 
 import matplotlib
 matplotlib.use('Agg')
@@ -10,6 +11,15 @@ import matplotlib.pyplot as plt
 
 filePath = "/users/wwick/adrianBAM"
 ref = "AE004437.1"
+numThreads = 64
+numTPs = 4
+numReps = 3
+
+genes = {}
+genes["VNG_0780H"] = ["586952", "587128"]
+genes["VNG_1130H"] = ["858687", "858911"]
+genes["VNG_2446H"] = ["1835869", "1836027"]
+genes["VNG_0287H"] = ["230608", "230883"]
 
 def BAMfile(rep, tp):
     return (filePath + "/BAM/rbf.rep." + str(rep) + ".tp." + str(tp) +
@@ -36,35 +46,32 @@ def figFile(gene, tp):
 def genePos(gene):
     return (ref + ":" + genes[gene][0] + "-" + genes[gene][1])
 
-genes = {}
-genes["VNG_0780H"] = ["586952", "587128"]
-genes["VNG_1130H"] = ["858687", "858911"]
-genes["VNG_2446H"] = ["1835869", "1836027"]
-genes["VNG_0287H"] = ["230608", "230883"]
-
-for gene in genes:
+def coverageComputer(gene):
     plt.figure()
-    for tp in range(1, 5):
+    for tp in xrange(1, 5):
         BAMfiles = []
-        for rep in range(1, 4):
+        for rep in xrange(1, 4):
             BAMfiles.append(BAMfile(rep, tp))
         output = outFile(gene, tp)
         stdout = open(output, "w")
         stderr = open(errFile(gene, tp), "w")
         command = ["samtools", "mpileup", "-d 8000", "-r", genePos(gene),
             BAMfiles[0], BAMfiles[1], BAMfiles[2]]
-        t0 = time.time()
         call(command, stdout = stdout, stderr = stderr)
-        t1 = time.time()
-        print(t1 - t0)
         stdout.close()
         stderr.close()
         pileup = np.loadtxt(output, skiprows = 0, usecols = [1,3])
-        x = pileup[:,0]
-        x = x - x[0] + 1
-        y = pileup[:,1]
-        plt.plot(x,y)
+        pileup[:,0] = pileup[:,0] - pileup[0,0] + 1
+        pileup[:,1] = pileup[:,1] / pileup[:,1].sum() * 1e6
+        plt.plot(pileup[:,0], pileup[:,1], label = "Time Point " + str(tp))
     plt.xlabel('relative position')
-    plt.ylabel('read depth')
+    plt.ylabel('reads per million')
     plt.title(gene)
-    plt.savefig(figFile(gene, tp))
+    plt.legend()
+    plt.savefig(figFile(gene, tp), dpi = 600)
+
+t0 = time.time()
+hydra = Pool(numThreads)
+hydra.map(coverageComputer, genes)
+t1 = time.time()
+print(t1 - t0)
