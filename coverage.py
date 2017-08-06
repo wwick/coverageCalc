@@ -1,9 +1,8 @@
 import os
 from subprocess import call
 import numpy as np
-import pandas as pd
 import time
-from multiprocessing import Pool
+from multiprocessing import process
 
 import matplotlib
 matplotlib.use('Agg')
@@ -11,8 +10,7 @@ import matplotlib.pyplot as plt
 
 filePath = "/users/wwick/adrianBAM"
 ref = "AE004437.1"
-numThreads = 64
-numTPs = 4
+numTP = 4
 numReps = 3
 
 genes = {}
@@ -24,6 +22,12 @@ genes["VNG_0287H"] = ["230608", "230883"]
 def BAMfile(rep, tp):
     return (filePath + "/BAM/rbf.rep." + str(rep) + ".tp." + str(tp) +
         "/Aligned.sortedByCoord.out.bam")
+
+def tempFile(rep, tp):
+    path = filePath + "/temp/"
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return (path + str(rep) + str(tp) + ".txt")
 
 def outFile(gene, tp):
     path = filePath + "/output/" + gene
@@ -46,32 +50,65 @@ def figFile(gene, tp):
 def genePos(gene):
     return (ref + ":" + genes[gene][0] + "-" + genes[gene][1])
 
-def coverageComputer(gene):
+def readCalc(rep, tp):
+    input = BAMfile(rep, tp)
+    stdout = open(tempFile(rep, tp))
+    command = ["samtools", "view", "-c", "-F", "260", input]
+    call(command, stdout = stdout)
+
+def coverageCalc(gene):
     plt.figure()
-    for tp in xrange(1, 5):
-        BAMfiles = []
-        for rep in xrange(1, 4):
-            BAMfiles.append(BAMfile(rep, tp))
+    for tp in range(1, numTP + 1):
+        inputs = []
+        for rep in range(1, numReps + 1):
+            inputs.append(BAMfile(rep, tp))
         output = outFile(gene, tp)
         stdout = open(output, "w")
         stderr = open(errFile(gene, tp), "w")
-        command = ["samtools", "mpileup", "-d 8000", "-r", genePos(gene),
-            BAMfiles[0], BAMfiles[1], BAMfiles[2]]
+        command = ["samtools", "depth", "-r", genePos(gene),
+            inputs[0], inputs[1], inputs[2]]
         call(command, stdout = stdout, stderr = stderr)
         stdout.close()
         stderr.close()
-        pileup = np.loadtxt(output, skiprows = 0, usecols = [1,3])
-        pileup[:,0] = pileup[:,0] - pileup[0,0] + 1
-        pileup[:,1] = pileup[:,1] / pileup[:,1].sum() * 1e6
-        plt.plot(pileup[:,0], pileup[:,1], label = "Time Point " + str(tp))
+        coverage = np.loadtxt(output, skiprows = 0, usecols = [1,2])
+        coverage[:,0] = coverage[:,0] - coverage[0,0] + 1
+        coverage[:,1] = coverage[:,1] / numReads(tp) * 1e6
+        plt.plot(coverage[:,0], coverage[:,1], label = "Time Point " + str(tp))
     plt.xlabel('relative position')
     plt.ylabel('reads per million')
     plt.title(gene)
     plt.legend()
     plt.savefig(figFile(gene, tp), dpi = 600)
 
+
 t0 = time.time()
-hydra = Pool(numThreads)
-hydra.map(coverageComputer, genes)
+
+tasks = []
+for tp in range(1, numTP + 1):
+     for rep in range(1, numReps + 1):
+            task = Process(target = readCalc, args = (rep, tp))
+            task.start()
+for task in tasks:
+    task.join()
+
+numReads = []
+for tp in range(1, numTP + 1):
+    values = []
+    for rep in range(1, numReps + 1):
+        path = tempFile(rep, tp)
+        file = open(path)
+        values.append(int(file.read()))
+        file.close()
+        os.remove(path)    
+    numReads.append(np.mean(values))
+            
+del tasks[:]
+for gene in genes:
+    task = Process(target = coverageCalc, args = (gene,))
+    tasks.append(task)
+    task.start()
+for task in tasks:
+    task.join()
+
 t1 = time.time()
 print(t1 - t0)
