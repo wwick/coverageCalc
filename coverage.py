@@ -2,7 +2,7 @@ import os
 from subprocess import call
 import numpy as np
 import time
-from multiprocessing import process
+from multiprocessing import Process
 
 import matplotlib
 matplotlib.use('Agg')
@@ -14,10 +14,18 @@ numTP = 4
 numReps = 3
 
 genes = {}
-genes["VNG_0780H"] = ["586952", "587128"]
-genes["VNG_1130H"] = ["858687", "858911"]
-genes["VNG_2446H"] = ["1835869", "1836027"]
-genes["VNG_0287H"] = ["230608", "230883"]
+
+# Outliers
+genes["VNG_1130H"] = ["858687", "858911"] # all
+genes["VNG_2446H"] = ["1835869", "1836027"] # all
+genes["VNG_0287H"] = ["230608", "230883"] # 1,2,3
+genes["VNG_1207C"] = ["907027", "907659"] # 3,4
+
+# Controls
+genes["VNG_1727G"] = ["1277691", "1278269"] # 1
+genes["VNG_1617H"] = ["1205478", "1205966"] # 2
+genes["VNG_0713C"] = ["537212", "537907"] # 3
+genes["VNG_2140G"] = ["1575479", "1575841"] # 4
 
 def BAMfile(rep, tp):
     return (filePath + "/BAM/rbf.rep." + str(rep) + ".tp." + str(tp) +
@@ -27,7 +35,7 @@ def tempFile(rep, tp):
     path = filePath + "/temp/"
     if not os.path.exists(path):
         os.makedirs(path)
-    return (path + str(rep) + str(tp) + ".txt")
+    return (path + "rep." + str(rep) + ".tp." + str(tp) + ".temp.txt")
 
 def outFile(gene, tp):
     path = filePath + "/output/" + gene
@@ -52,7 +60,7 @@ def genePos(gene):
 
 def readCalc(rep, tp):
     input = BAMfile(rep, tp)
-    stdout = open(tempFile(rep, tp))
+    stdout = open(tempFile(rep, tp), "w")
     command = ["samtools", "view", "-c", "-F", "260", input]
     call(command, stdout = stdout)
 
@@ -71,11 +79,14 @@ def coverageCalc(gene):
         stdout.close()
         stderr.close()
         coverage = np.loadtxt(output, skiprows = 0, usecols = [1,2])
-        coverage[:,0] = coverage[:,0] - coverage[0,0] + 1
-        coverage[:,1] = coverage[:,1] / numReads(tp) * 1e6
-        plt.plot(coverage[:,0], coverage[:,1], label = "Time Point " + str(tp))
+        x = coverage[:,0]
+        y = coverage[:,1]
+        x = x - x[0] + 1
+        y = y / numReads[tp - 1] * 1e6
+        # y = y / np.amax(y) * 1e2
+        plt.plot(x, y, label = "Time Point " + str(tp))
     plt.xlabel('relative position')
-    plt.ylabel('reads per million')
+    plt.ylabel('read depth')
     plt.title(gene)
     plt.legend()
     plt.savefig(figFile(gene, tp), dpi = 600)
@@ -84,12 +95,13 @@ def coverageCalc(gene):
 t0 = time.time()
 
 tasks = []
-for tp in range(1, numTP + 1):
-     for rep in range(1, numReps + 1):
-            task = Process(target = readCalc, args = (rep, tp))
-            task.start()
-for task in tasks:
-    task.join()
+# for tp in range(1, numTP + 1):
+#      for rep in range(1, numReps + 1):
+#             task = Process(target = readCalc, args = (rep, tp))
+#             tasks.append(task)
+#             task.start()
+# for task in tasks:
+#     task.join()
 
 numReads = []
 for tp in range(1, numTP + 1):
@@ -99,10 +111,9 @@ for tp in range(1, numTP + 1):
         file = open(path)
         values.append(int(file.read()))
         file.close()
-        os.remove(path)    
     numReads.append(np.mean(values))
-            
-del tasks[:]
+
+del tasks [:]
 for gene in genes:
     task = Process(target = coverageCalc, args = (gene,))
     tasks.append(task)
